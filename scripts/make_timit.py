@@ -17,11 +17,14 @@ def main(inpath, outpath):
             for _ff in os.listdir(parent_f):
                 parent_ff = os.path.join(parent_f, _ff)
                 if os.path.isdir(parent_ff):
-                    for ex in os.listdir(parent_ff):
-                        if ex.endswith('.phn') or ex.endswith('.wav'): 
-                            src_name = os.path.join(parent_ff, ex)
-                            tgt_name = os.path.join(outpath, _f+'_'+_ff+'_'+ex)
-                            shutil.copy(src_name, tgt_name)
+                    if os.path.isdir(parent_ff):
+                        for _fff in os.listdir(parent_ff):
+                            parent_fff = os.path.join(parent_ff, _fff)
+                            for ex in os.listdir(parent_fff):
+                                if ex.endswith('.phn') or ex.endswith('.wav'): 
+                                    src_name = os.path.join(parent_fff, ex)
+                                    tgt_name = os.path.join(outpath, _f, _ff+'_'+_fff+'_'+ex)
+                                    shutil.copy(src_name, tgt_name)
 
 parser = argparse.ArgumentParser(description='Make TIMIT dataset ready for unsupervised segmentation.')
 parser.add_argument('--inpath', type=str, required=True, help='the path to the base timit dir.')
