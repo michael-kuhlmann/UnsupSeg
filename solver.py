@@ -8,16 +8,14 @@ import pytorch_lightning as pl
 from pytorch_lightning import LightningModule
 import torch_optimizer as optim_extra
 
-import torch
 from torch import optim
 from torch.utils.data import ConcatDataset, DataLoader
-import torchaudio
 
-from dataloader import (LibriSpeechDataset, MixedDataset, TrainTestDataset,
-                        TrainValTestDataset, collate_fn_padd, spectral_size)
-from next_frame_classifier import NextFrameClassifier
-from utils import (PrecisionRecallMetric, StatsMeter,
-                   detect_peaks, line, max_min_norm, replicate_first_k_frames)
+from unsup_seg.dataloader import (LibriSpeechDataset, TrainTestDataset,
+                                  TrainValTestDataset, collate_fn_padd)
+from unsup_seg.next_frame_classifier import NextFrameClassifier
+from unsup_seg.utils import (PrecisionRecallMetric, StatsMeter,
+                             line, max_min_norm, replicate_first_k_frames)
 
 
 class Solver(LightningModule):
@@ -42,6 +40,11 @@ class Solver(LightningModule):
             "test":  (0, 0)
         })
         self.overall_best_rval = 0
+        self.best_recall = defaultdict(lambda: {
+            "train": (0, 0),
+            "val": (0, 0),
+            "test": (0, 0)
+        })
         self.stats = defaultdict(lambda: {
             "train": StatsMeter(),
             "val":   StatsMeter(),
@@ -123,7 +126,7 @@ class Solver(LightningModule):
         loss += NFC_loss
 
         # INFERENCE
-        if mode == "test" or (mode == "val" and self.hp.early_stop_metric == "val_max_rval"):
+        if mode == "test" or (mode == "val" and self.hp.early_stop_metric in ["val_max_rval", "val_max_recall"]):
             positives = 0
             for t in self.NFC.pred_steps:
                 p = preds[t][0]
@@ -153,13 +156,23 @@ class Solver(LightningModule):
         for pred_type in self.pr.keys():
             if mode == "val":
                 (precision, recall, f1, rval), (width, prominence, distance) = self.pr[pred_type][mode].get_stats()
-                if rval > self.best_rval[pred_type][mode][0]:
-                    self.best_rval[pred_type][mode] = rval, self.current_epoch
-                    self.peak_detection_params[pred_type]["width"] = width
-                    self.peak_detection_params[pred_type]["prominence"] = prominence
-                    self.peak_detection_params[pred_type]["distance"] = distance
-                    self.peak_detection_params[pred_type]["epoch"] = self.current_epoch
-                    print(f"saving for test - {pred_type} - {self.peak_detection_params[pred_type]}")
+                if self.hp.early_stop_metric in ['val_max_rval', 'val_max_recall']:
+                    if self.hp.early_stop_metric == 'val_max_rval':
+                        cur = rval
+                        best = self.best_rval[pred_type][mode][0]
+                    else:
+                        cur = recall
+                        best = self.best_recall[pred_type][mode][0]
+                    if rval > self.best_rval[pred_type][mode][0]:
+                        self.best_rval[pred_type][mode] = rval, self.current_epoch
+                    if recall > self.best_recall[pred_type][mode][0]:
+                        self.best_recall[pred_type][mode] = recall, self.current_epoch
+                    if cur > best:
+                        self.peak_detection_params[pred_type]["width"] = width
+                        self.peak_detection_params[pred_type]["prominence"] = prominence
+                        self.peak_detection_params[pred_type]["distance"] = distance
+                        self.peak_detection_params[pred_type]["epoch"] = self.current_epoch
+                        print(f"saving for test - {pred_type} - {self.peak_detection_params[pred_type]}")
             else:
                 print(f"using pre-defined peak detection values - {pred_type} - {self.peak_detection_params[pred_type]}")
                 (precision, recall, f1, rval), _ = self.pr[pred_type][mode].get_stats(
@@ -170,19 +183,27 @@ class Solver(LightningModule):
                 # test has only one epoch so set it as best
                 # this is to get the overall best pred_type later
                 self.best_rval[pred_type][mode] = rval, self.current_epoch
+                self.best_recall[pred_type][mode] = recall, self.current_epoch
             metrics[f'{data}_{mode}_{pred_type}_f1'] = f1
             metrics[f'{data}_{mode}_{pred_type}_precision'] = precision
             metrics[f'{data}_{mode}_{pred_type}_recall'] = recall
             metrics[f'{data}_{mode}_{pred_type}_rval'] = rval
             metrics[f"{data}_{mode}_{pred_type}_max_rval"] = self.best_rval[pred_type][mode][0]
             metrics[f"{data}_{mode}_{pred_type}_max_rval_epoch"] = self.best_rval[pred_type][mode][1]
+            metrics[f"{data}_{mode}_{pred_type}_max_recall"] = self.best_recall[pred_type][mode][0]
+            metrics[f"{data}_{mode}_{pred_type}_max_recall_epoch"] = self.best_recall[pred_type][mode][1]
 
         # get best rval from all rval types and all epochs
         best_overall_rval = -float("inf")
+        best_overall_recall = -float("inf")
         for pred_type, rval in self.best_rval.items():
             if rval[mode][0] > best_overall_rval:
                 best_overall_rval = rval[mode][0]
+        for pred_type, recall in self.best_recall.items():
+            if recall[mode][0] > best_overall_recall:
+                best_overall_recall = recall[mode][0]
         metrics[f'{mode}_max_rval'] = best_overall_rval
+        metrics[f'{mode}_max_recall'] = best_overall_recall
 
         for k, v in metrics.items():
             print(f"\t{k:<30} -- {v}")

@@ -3,9 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import hydra
-from utils import LambdaLayer, PrintShapeLayer, length_to_mask
-from dataloader import TrainTestDataset
+from .utils import LambdaLayer, PrintShapeLayer, length_to_mask
+from .dataloader import TrainTestDataset
 from collections import defaultdict
 
 
@@ -98,15 +97,17 @@ class NextFrameClassifier(nn.Module):
             loss += -out.mean()
         return loss
 
-@hydra.main(config_path='conf/config.yaml', strict=False)
-def main(cfg):
-    ds, _, _ = TrainTestDataset.get_datasets(cfg.timit_path)
-    spect, seg, phonemes, length, fname = ds[0]
-    spect = spect.unsqueeze(0)
-
-    model = NextFrameClassifier(cfg)
-    out = model(spect, length)
-
 
 if __name__ == "__main__":
+    import hydra
+
+    @hydra.main(config_path='../conf/config.yaml', strict=False)
+    def main(cfg):
+        ds, _, _ = TrainTestDataset.get_datasets(cfg.timit_path)
+        spect, seg, phonemes, length, fname = ds[0]
+        spect = spect.unsqueeze(0)
+
+        model = NextFrameClassifier(cfg)
+        out = model(spect, length)
+
     main()

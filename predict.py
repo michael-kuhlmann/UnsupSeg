@@ -3,8 +3,8 @@ import dill
 from argparse import Namespace
 import torch
 import torchaudio
-from utils import (detect_peaks, max_min_norm, replicate_first_k_frames)
-from next_frame_classifier import NextFrameClassifier
+from unsup_seg.utils import (detect_peaks, max_min_norm, replicate_first_k_frames)
+from unsup_seg.next_frame_classifier import NextFrameClassifier
 
 
 def main(wav, ckpt, prominence):
